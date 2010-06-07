@@ -98,7 +98,7 @@ module Delayed
       worker.name_prefix = "#{worker_name} "
       worker.start
     rescue => e
-      Rails.logger.fatal e
+      Delayed::Worker.logger.fatal e
       STDERR.puts e.message
       exit 1
     end
