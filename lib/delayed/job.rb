@@ -5,10 +5,25 @@ module Delayed
 
   # A job object that is persisted to the database.
   # Contains the work object as a YAML field.
-  class Job < ActiveRecord::Base
+  class Job
+    include ::Mongoid::Document
+    include ::Mongoid::Timestamps
+    
     MAX_ATTEMPTS = 25
     MAX_RUN_TIME = 4.hours
-    set_table_name :delayed_jobs
+    store_in 'delayed_jobs'
+
+    field :priority,   :type => Integer, :default => 0
+    field :attempts,   :type => Integer, :default => 0
+    field :handler,    :type => String
+    field :run_at,     :type => Time
+    field :locked_at,  :type => Time
+    field :locked_by,  :type => String
+    field :failed_at,  :type => Time
+    field :last_error, :type => String
+    
+    index :locked_by
+    index [[:priority, 1], [:run_at, 1]]
 
     # By default failed jobs are destroyed after too many attempts.
     # If you want to keep them around (perhaps to inspect the reason
@@ -32,8 +47,8 @@ module Delayed
     self.max_priority = nil
 
     # When a worker is exiting, make sure we don't have any locked jobs.
-    def self.clear_locks!
-      update_all("locked_by = null, locked_at = null", ["locked_by = ?", worker_name])
+    def self.clear_locks!(worker_name)
+      collection.update({:locked_by => worker_name}, {"$set" => {:locked_at => nil, :locked_by => nil}}, :multi => true)
     end
 
     def failed?
@@ -118,31 +133,24 @@ module Delayed
 
     # Find a few candidate jobs to run (in case some immediately get locked by others).
     # Return in random order prevent everyone trying to do same head job at once.
-    def self.find_available(limit = 5, max_run_time = MAX_RUN_TIME)
+    def self.find_available(worker_name, limit = 5, max_run_time = Worker.max_run_time)
+      right_now = db_time_now
 
-      time_now = db_time_now
+      conditions = {
+        :run_at => {"$lte" => right_now},
+        :limit => -limit, # In mongo, positive limits are 'soft' and negative are 'hard'
+        :failed_at => nil,
+        :sort => [['priority', 1], ['run_at', 1]]
+      }
 
-      sql = NextTaskSQL.dup
+      where = "this.locked_at == null || this.locked_at < #{make_date(right_now - max_run_time)}"
+      
+      (conditions[:priority] ||= {})['$gte'] = Worker.min_priority.to_i if Worker.min_priority
+      (conditions[:priority] ||= {})['$lte'] = Worker.max_priority.to_i if Worker.max_priority
 
-      conditions = [time_now, time_now - max_run_time, worker_name]
-
-      if self.min_priority
-        sql << ' AND (priority >= ?)'
-        conditions << min_priority
-      end
-
-      if self.max_priority
-        sql << ' AND (priority <= ?)'
-        conditions << max_priority
-      end
-
-      conditions.unshift(sql)
-
-      records = ActiveRecord::Base.silence do
-        find(:all, :conditions => conditions, :order => NextTaskOrder, :limit => limit)
-      end
-
-      records.sort_by { rand() }
+      results = all(:conditions => conditions.merge(:locked_by => worker_name))
+      results += all(:conditions => conditions.merge('$where' => where)) if results.size < limit
+      results
     end
 
     # Run the next job we can get an exclusive lock on.
@@ -158,28 +166,27 @@ module Delayed
 
       nil # we didn't do any work, all 5 were not lockable
     end
-
+    
     # Lock this job for this worker.
     # Returns true if we have the lock, false otherwise.
     def lock_exclusively!(max_run_time, worker = worker_name)
-      now = self.class.db_time_now
-      affected_rows = if locked_by != worker
-        # We don't own this job so we will update the locked_by name and the locked_at
-        self.class.update_all(["locked_at = ?, locked_by = ?", now, worker], ["id = ? and (locked_at is null or locked_at < ?)", id, (now - max_run_time.to_i)])
-      else
-        # We already own this job, this may happen if the job queue crashes.
-        # Simply resume and update the locked_at
-        self.class.update_all(["locked_at = ?", now], ["id = ? and locked_by = ?", id, worker])
-      end
+      right_now = self.class.db_time_now
+      overtime = right_now - max_run_time.to_i
+      
+      query = "this.locked_at == null || this.locked_at < #{make_date(overtime)} || this.locked_by == #{worker.to_json}"
+      conditions = {:_id => id, :run_at => {"$lte" => right_now}, "$where" => query}
+
+      collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
+      affected_rows = collection.find({:_id => id, :locked_by => worker}).count
       if affected_rows == 1
-        self.locked_at    = now
-        self.locked_by    = worker
+        self.locked_at = right_now
+        self.locked_by = worker
         return true
       else
         return false
       end
     end
-
+    
     # Unlock this job (note: not saved to DB)
     def unlock
       self.locked_at    = nil
@@ -249,7 +256,15 @@ module Delayed
     # Note: This does not ping the DB to get the time, so all your clients
     # must have syncronized clocks.
     def self.db_time_now
-      (ActiveRecord::Base.default_timezone == :utc) ? Time.now.utc : Time.zone.now
+      Time.now.utc
+    end
+    
+    def self.make_date(date_or_seconds)
+      "new Date(#{date_or_seconds.to_f * 1000})"
+    end
+
+    def make_date(date)
+      self.class.make_date(date)
     end
 
   protected

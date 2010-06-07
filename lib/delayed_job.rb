@@ -1,4 +1,4 @@
-autoload :ActiveRecord, 'activerecord'
+autoload :Mongoid, 'mongoid'
 
 require File.dirname(__FILE__) + '/delayed/message_sending'
 require File.dirname(__FILE__) + '/delayed/performable_method'
