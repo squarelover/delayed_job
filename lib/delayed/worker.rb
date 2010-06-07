@@ -14,13 +14,15 @@ module Delayed
     # (perhaps to inspect the reason for the failure), set this to false.
     cattr_accessor :destroy_failed_jobs
     self.destroy_failed_jobs = true
-    
-    self.logger = if defined?(Merb::Logger)
-      Merb.logger
-    elsif defined?(RAILS_DEFAULT_LOGGER)
-      RAILS_DEFAULT_LOGGER
-    end
 
+    def self.logger
+      if defined?(Merb::Logger)
+        Merb.logger
+      elsif defined?(Rails.logger)
+        Rails.logger
+      end
+    end
+    
     # name_prefix is ignored if name is set directly
     attr_accessor :name_prefix
     

@@ -1,5 +1,3 @@
-require 'mongoid'
-
 Mongoid::Document.class_eval do
   yaml_as "tag:ruby.yaml.org,2002:Mongoid"
   
@@ -38,7 +36,7 @@ module Delayed
         
         before_save :set_default_run_at
 
-        
+
         def self.before_fork
           ::Mongoid.master.connection.close
         end
@@ -83,6 +81,9 @@ module Delayed
 
           collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
           affected_rows = collection.find({:_id => id, :locked_by => worker}).count
+          self.collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
+          affected_rows = self.collection.find({:_id => id, :locked_by => worker}).count
+
           if affected_rows == 1
             self.locked_at = right_now
             self.locked_by = worker
