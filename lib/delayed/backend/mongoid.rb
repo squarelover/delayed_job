@@ -1,14 +1,16 @@
-require 'mongoid'
-
 Mongoid::Document.class_eval do
   yaml_as "tag:ruby.yaml.org,2002:Mongoid"
   
   def self.yaml_new(klass, tag, val)
-    klass.find(val['_id'])
+    begin
+      klass.find(val['attributes']['_id'])
+    rescue Mongoid::Errors::DocumentNotFound
+      nil
+    end
   end
-
+  
   def to_yaml_properties
-    ['@_id']
+    ['@attributes']
   end
 end
 
@@ -26,22 +28,21 @@ module Delayed
         field :handler,    :type => String
         field :run_at,     :type => Time
         field :locked_at,  :type => Time
-        field :locked_by,  :type => String
+        field :locked_by,  :type => String, :index => true
         field :failed_at,  :type => Time
         field :last_error, :type => String
         
-        index :locked_by
-        index [[:priority, 1], [:run_at, 1]]
+        index [[:priority, 1], [:run_at, 1]], :background => true
         
         before_save :set_default_run_at
 
-        
+
         def self.before_fork
-          ::DialogCentral::Database.disconnect
+          ::Mongoid.master.connection.close
         end
-        
+
         def self.after_fork
-          ::DialogCentral::Database.connect
+          ::Mongoid.master.connection.connect_to_master
         end
         
         def self.db_time_now
@@ -51,20 +52,13 @@ module Delayed
         def self.find_available(worker_name, limit = 5, max_run_time = Worker.max_run_time)
           right_now = db_time_now
 
-          conditions = {
-            :run_at => {"$lte" => right_now},
-            :limit => -limit, # In mongo, positive limits are 'soft' and negative are 'hard'
-            :failed_at => nil,
-            :sort => [['priority', 1], ['run_at', 1]]
-          }
-
-          where = "this.locked_at == null || this.locked_at < #{make_date(right_now - max_run_time)}"
-          
+          conditions = {:run_at  => {"$lte" => right_now}, :failed_at => nil}
           (conditions[:priority] ||= {})['$gte'] = Worker.min_priority.to_i if Worker.min_priority
           (conditions[:priority] ||= {})['$lte'] = Worker.max_priority.to_i if Worker.max_priority
 
-          results = all(:conditions => conditions.merge(:locked_by => worker_name))
-          results += all(:conditions => conditions.merge('$where' => where)) if results.size < limit
+          where = "this.locked_at == null || this.locked_at < #{make_date(right_now - max_run_time)}"
+          results = self.where(conditions.merge(:locked_by => worker_name)).limit(-limit).order_by([['priority', 1], ['run_at', 1]]).to_a
+          results += self.where(conditions.merge('$where' => where)).limit(-limit+results.size).order_by([['priority', 1], ['run_at', 1]]).to_a if results.size < limit
           results
         end
         
@@ -84,6 +78,9 @@ module Delayed
 
           collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
           affected_rows = collection.find({:_id => id, :locked_by => worker}).count
+          self.collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
+          affected_rows = self.collection.find({:_id => id, :locked_by => worker}).count
+
           if affected_rows == 1
             self.locked_at = right_now
             self.locked_by = worker

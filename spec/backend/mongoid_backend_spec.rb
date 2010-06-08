@@ -69,7 +69,7 @@ describe Delayed::Backend::Mongoid::Job do
   
   describe "before_fork" do
     after do
-      ::DialogCentral::Database.connect
+      ::Mongoid.master.connection.connect_to_master
     end
     
     it "should disconnect" do
@@ -81,7 +81,7 @@ describe Delayed::Backend::Mongoid::Job do
 
   describe "after_fork" do
     before do
-      ::DialogCentral::Database.disconnect
+      ::Mongoid.master.connection.close
     end
     
     it "should call reconnect" do

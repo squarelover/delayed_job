@@ -14,13 +14,15 @@ module Delayed
     # (perhaps to inspect the reason for the failure), set this to false.
     cattr_accessor :destroy_failed_jobs
     self.destroy_failed_jobs = true
-    
-    self.logger = if defined?(Merb::Logger)
-      Merb.logger
-    elsif defined?(RAILS_DEFAULT_LOGGER)
-      RAILS_DEFAULT_LOGGER
-    end
 
+    def self.logger
+      if defined?(Merb::Logger)
+        Merb.logger
+      elsif defined?(Rails.logger)
+        Rails.logger
+      end
+    end
+    
     # name_prefix is ignored if name is set directly
     attr_accessor :name_prefix
     
@@ -40,7 +42,8 @@ module Delayed
         :active_record
       elsif defined?(MongoMapper)
         :mongo_mapper
-      elseif defined?(Mongoid)
+      elsif defined?(Mongoid)
+        :mongoid
       else
         logger.warn "Could not decide on a backend, defaulting to active_record"
         :active_record
@@ -73,7 +76,9 @@ module Delayed
 
       trap('TERM') { say 'Exiting...'; $exit = true }
       trap('INT')  { say 'Exiting...'; $exit = true }
-
+      
+      say "DialogCentral::Database = #{DialogCentral::Database.mongodb.inspect}"
+      say "DialogCentral::Settings.fallback_address = #{DialogCentral::Settings.fallback_address}"
       loop do
         result = nil
 
@@ -167,10 +172,10 @@ module Delayed
     # Run the next job we can get an exclusive lock on.
     # If no jobs are left we return nil
     def reserve_and_run_one_job
-
       # We get up to 5 jobs from the db. In case we cannot get exclusive access to a job we try the next.
       # this leads to a more even distribution of jobs across the worker processes
       job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |job|
+        say "inner job = #{job.inspect}"
         if job.lock_exclusively!(self.class.max_run_time, name)
           say "acquired lock on #{job.name}"
           true

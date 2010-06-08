@@ -1,15 +1,17 @@
 require 'mongoid'
-require File.join(File.dirname(__FILE__), '../../../../../config/initializers/database')
 
-::DialogCentral::Database.uri = "mongodb://localhost:27017/delayed_job"
+require 'delayed/backend/mongoid'
 
-unless defined?(Story)
-  class Story
-    include ::Mongoid::Document
-    def tell; text; end
-    def whatever(n, _); tell*n; end
-    def self.count; end
-  
-    handle_asynchronously :whatever
-  end
+Mongoid.configure do |config|
+  config.master = config.master = Mongo::Connection.new.db('dl_spec') 
 end
+
+class Story
+  include ::Mongoid::Document
+  def tell; text; end       
+  def whatever(n, _); tell*n; end
+  def self.count; end
+
+  handle_asynchronously :whatever
+end
+
