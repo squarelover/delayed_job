@@ -77,8 +77,6 @@ module Delayed
       trap('TERM') { say 'Exiting...'; $exit = true }
       trap('INT')  { say 'Exiting...'; $exit = true }
       
-      say "DialogCentral::Database = #{DialogCentral::Database.mongodb.inspect}"
-      say "DialogCentral::Settings.fallback_address = #{DialogCentral::Settings.fallback_address}"
       loop do
         result = nil
 
@@ -175,7 +173,6 @@ module Delayed
       # We get up to 5 jobs from the db. In case we cannot get exclusive access to a job we try the next.
       # this leads to a more even distribution of jobs across the worker processes
       job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |job|
-        say "inner job = #{job.inspect}"
         if job.lock_exclusively!(self.class.max_run_time, name)
           say "acquired lock on #{job.name}"
           true
