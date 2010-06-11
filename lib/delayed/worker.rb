@@ -136,7 +136,8 @@ module Delayed
     # Reschedule the job in the future (when a job fails).
     # Uses an exponential scale depending on the number of failed attempts.
     def reschedule(job, time = nil)
-      if (job.attempts += 1) < self.class.max_attempts
+      job.attempts += 1  # Moved out of test because in production for some reason it returns nil
+      if (job.attempts) < self.class.max_attempts
         time ||= Job.db_time_now + (job.attempts ** 4) + 5
         job.run_at = time
         job.unlock
