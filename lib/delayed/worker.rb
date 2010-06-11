@@ -173,8 +173,8 @@ module Delayed
     def reserve_and_run_one_job
       # We get up to 5 jobs from the db. In case we cannot get exclusive access to a job we try the next.
       # this leads to a more even distribution of jobs across the worker processes
-      job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |job|
-        if job.lock_exclusively!(self.class.max_run_time, name)
+      job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |a_job|
+        if a_job.lock_exclusively!(self.class.max_run_time, name)
           say "acquired lock on #{job.name}"
           true
         else
