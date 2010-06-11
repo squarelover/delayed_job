@@ -175,10 +175,10 @@ module Delayed
       # this leads to a more even distribution of jobs across the worker processes
       job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |a_job|
         if a_job.lock_exclusively!(self.class.max_run_time, name)
-          say "acquired lock on #{job.name}"
+          say "acquired lock on #{a_job.name}"
           true
         else
-          say "failed to acquire exclusive lock for #{job.name}", Logger::WARN
+          say "failed to acquire exclusive lock for #{a_job.name}", Logger::WARN
           false
         end
       end
