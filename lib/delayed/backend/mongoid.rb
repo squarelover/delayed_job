@@ -28,11 +28,14 @@ module Delayed
         field :handler,    :type => String
         field :run_at,     :type => Time
         field :locked_at,  :type => Time
-        field :locked_by,  :type => String, :index => true
+        field :locked_by,  :type => String
         field :failed_at,  :type => Time
         field :last_error, :type => String
         
-        index [[:priority, 1], [:run_at, 1]], :background => true
+        if DialogCentral::Database.indexes_disabled?
+          index :locked_by, :background => true
+          index [[:priority, 1], [:run_at, 1]], :background => true
+        end
         
         before_save :set_default_run_at
 
