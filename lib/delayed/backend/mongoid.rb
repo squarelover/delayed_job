@@ -81,8 +81,6 @@ module Delayed
 
           collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
           affected_rows = collection.find({:_id => id, :locked_by => worker}).count
-          self.collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
-          affected_rows = self.collection.find({:_id => id, :locked_by => worker}).count
 
           if affected_rows == 1
             self.locked_at = right_now
