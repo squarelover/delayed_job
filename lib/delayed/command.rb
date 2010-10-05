@@ -98,8 +98,15 @@ module Delayed
       worker.name_prefix = "#{worker_name} "
       worker.start
     rescue => e
-      Delayed::Worker.logger.fatal e
+      begin
+        Rails.logger.fatal e.inspect
+        Rails.logger.fatal e.backtrace
+      rescue => inner_e
+        Logger.new(File.join(RAILS_ROOT, 'log', 'delayed_job.log')).fatal e.inspect
+      end
       STDERR.puts e.message
+      STDERR.puts e.backtrace
+      
       exit 1
     end
     

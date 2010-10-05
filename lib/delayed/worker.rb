@@ -136,7 +136,8 @@ module Delayed
     # Reschedule the job in the future (when a job fails).
     # Uses an exponential scale depending on the number of failed attempts.
     def reschedule(job, time = nil)
-      if (job.attempts += 1) < self.class.max_attempts
+      job.attempts += 1  # Moved out of test because in production for some reason it returns nil
+      if (job.attempts) < self.class.max_attempts
         time ||= Job.db_time_now + (job.attempts ** 4) + 5
         job.run_at = time
         job.unlock
@@ -170,15 +171,14 @@ module Delayed
     # Run the next job we can get an exclusive lock on.
     # If no jobs are left we return nil
     def reserve_and_run_one_job
-
       # We get up to 5 jobs from the db. In case we cannot get exclusive access to a job we try the next.
       # this leads to a more even distribution of jobs across the worker processes
-      job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |job|
-        if job.lock_exclusively!(self.class.max_run_time, name)
-          say "acquired lock on #{job.name}"
+      job = Delayed::Job.find_available(name, 5, self.class.max_run_time).detect do |a_job|
+        if a_job.lock_exclusively!(self.class.max_run_time, name)
+          say "acquired lock on #{a_job.name}"
           true
         else
-          say "failed to acquire exclusive lock for #{job.name}", Logger::WARN
+          say "failed to acquire exclusive lock for #{a_job.name}", Logger::WARN
           false
         end
       end

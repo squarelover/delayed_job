@@ -52,16 +52,13 @@ module Delayed
         def self.find_available(worker_name, limit = 5, max_run_time = Worker.max_run_time)
           right_now = db_time_now
 
-          crit = self.criteria
-          crit.order_by([['priority', 1], ['run_at', 1]]).
-               where(:run_at.lte => right_now, :failed_at => nil)
-
-          crit.where(:priority.gte => Worker.min_priority.to_i) if Worker.min_priority
-          crit.where(:priority.lte => Worker.max_priority.to_i) if Worker.max_priority
+          conditions = {:run_at  => {"$lte" => right_now}, :failed_at => nil}
+          (conditions[:priority] ||= {})['$gte'] = Worker.min_priority.to_i if Worker.min_priority
+          (conditions[:priority] ||= {})['$lte'] = Worker.max_priority.to_i if Worker.max_priority
 
           where = "this.locked_at == null || this.locked_at < #{make_date(right_now - max_run_time)}"
-          results = crit.clone.where(:locked_by => worker_name).limit(-limit).to_a
-          results += crit.where('$where' => where).limit(-limit+results.size).to_a if results.size < limit
+          results = self.where(conditions.merge(:locked_by => worker_name)).limit(-limit).order_by([['priority', 1], ['run_at', 1]]).to_a
+          results += self.where(conditions.merge('$where' => where)).limit(-limit+results.size).order_by([['priority', 1], ['run_at', 1]]).to_a if results.size < limit
           results
         end
         
@@ -81,8 +78,6 @@ module Delayed
 
           collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
           affected_rows = collection.find({:_id => id, :locked_by => worker}).count
-          self.collection.update(conditions, {"$set" => {:locked_at => right_now, :locked_by => worker}})
-          affected_rows = self.collection.find({:_id => id, :locked_by => worker}).count
 
           if affected_rows == 1
             self.locked_at = right_now
